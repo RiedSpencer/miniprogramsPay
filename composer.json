@@ -1,0 +1,22 @@
+{
+    "name": "miniprogram/login",
+    "description": "quick union pay about wx mini programs",
+    "keywords": ["mini programs","login"],
+    "type": "library",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "spencer Rao",
+            "email": "641315243raoye@sina.com"
+        }
+    ],
+    "minimum-stability": "stable",
+    "require": {
+        "php": ">=5.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "wxPay\\": "src/wxPay"
+        }
+    }
+}
