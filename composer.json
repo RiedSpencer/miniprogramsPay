@@ -1,5 +1,5 @@
 {
-    "name": "miniprogram/login",
+    "name": "miniprogram/pay",
     "description": "quick union pay about wx mini programs",
     "keywords": ["mini programs","login"],
     "type": "library",
