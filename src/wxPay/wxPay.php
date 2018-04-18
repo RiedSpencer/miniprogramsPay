@@ -9,9 +9,9 @@
  */
 
 
-namespace wxpay;
+namespace wxPay;
 
-class WxPay{
+class wxPay{
 
     private $pdo;
     private $tablename;
@@ -24,6 +24,11 @@ class WxPay{
     public function __construct()
     {
 
+    }
+
+    public function test()
+    {
+        echo "测试成功";
     }
 
     /**
