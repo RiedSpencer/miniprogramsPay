@@ -93,6 +93,7 @@ class wxPay
         $notify = $payparam['notify']??'this is notify_url';
 
         $prearr = $this->unifiedOrder($payparam['appid'],$payparam['mchid'],$payparam['openid'],$order_sn,$fee,$body,$detail,$notify);
+
         $payinfo = $this->xcxSign($prearr['prepay_id']);
 
         //创建订单
@@ -103,8 +104,7 @@ class wxPay
             else
                 echo $create;
         }
-
-        echo json_encode(array('payinfo'=>$payinfo));
+        echo json_encode(['prepay'=>$prearr,'payinfo'=>$payinfo]);
     }
 
 

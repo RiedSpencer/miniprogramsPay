@@ -97,8 +97,10 @@ $wxpay->wxpay($payparam,$table,$param,$conn);
 //返回json信息
 
 
-{"payinfo":{"appId":"","nonceStr":"","package":"","signType":"","timeStamp":,"paySign":""}}
+{"prepay":{"return_code":"","return_msg":"","appid":"","mch_id":"","nonce_str":"","sign":"","result_code":"","prepay_id":"","trade_type":""},"payinfo":{"appId":"","nonceStr":"","package":"","signType":"","timeStamp":,"paySign":""}}
 
 
 //说明统一下单成功
+
+
 
