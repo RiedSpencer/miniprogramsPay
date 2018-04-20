@@ -99,6 +99,7 @@ $wxpay->wxpay($payparam,$table,$param,$conn);
 
 {"prepay":{"return_code":"","return_msg":"","appid":"","mch_id":"","nonce_str":"","sign":"","result_code":"","prepay_id":"","trade_type":""},"payinfo":{"appId":"","nonceStr":"","package":"","signType":"","timeStamp":,"paySign":""}}
 
+//通过 prepay 预支付信息，校验签名，是否正确
 
 //说明统一下单成功
 
