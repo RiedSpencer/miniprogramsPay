@@ -4,102 +4,117 @@
  * User: spencerRao
  * Date: 2018/4/15
  * Time: 下午2:35
- * function: quick wxpay interface about wx mini programs
- * step: 1。创建订单；2。调用支付接口进行支付；3。在成功返回的函数中修改原始订单状态
  */
-
 
 namespace wxPay;
 
-class wxPay{
+use wxPay\orderPay;
 
-    private $pdo;
-    private $tablename;
-    private $payparam;
-    /**
-     * WxPay constructor.
-     *
-     *
-     */
+class wxPay
+{
+
+    //支付参数
+    private  $payparam;
+    private  $order;
+    private  $table;
     public function __construct()
     {
 
     }
 
-    public function test()
-    {
-        echo "测试成功";
-    }
-
     /**
-     * @param $host
-     * @param $dbname
-     * @param $username
-     * @param $pass
-     * @return \PDO
-     * @funct connect the db
+     * @return string
+     * 生成唯一订单号
      */
-    public function conndb($host,$dbname,$username,$pass)
-    {
-        $dsn = "mysql:host=$host;dbname=$dbname";
-        $pdo = new \PDO($dsn,$username,$pass);
-        $this->pdo = $pdo;
+    private function guid() {
+        if (function_exists('com_create_guid')) {
+            return com_create_guid();
+        } else {
+            mt_srand((double)microtime()*10000);
+            $charid = strtoupper(md5(uniqid(rand(), true)));
+            $hyphen = chr(45);
+            $uuid   = substr($charid, 0, 8).$hyphen
+                .substr($charid,12, 4).$hyphen
+                .substr($charid,16, 4).$hyphen
+                .substr($charid,20,12);
+            return $uuid;
+        }
     }
 
     /**
-     * @param $tablename
-     * @param $param
-     * @return mixed
-     * @funct create a order
+     * @return string
+     * $funct create a unique  ordersn
      */
-    public function createOrder($tablename,$param)
+    public function creatSn($order)
     {
-        $p = array_flip($param);
-        $pdo = $this->pdo;
-        $condition = '';
-        if(count($p)){
-            $condition = implode(' = ? , ',$p);
-        }
-        $sql = 'INSERT INTO '.$tablename.' SET '.$condition;
-        $sth = $pdo->prepare($sql);
-        $i = 1;
-        foreach ($param as $k => $v)
-        {
-            $sth->bindValue($i,$v);
-            ++$i;
-        }
-        $sth->execute();
-        $oid = $pdo->lastInsertId();
-        return $oid;
+        $orderSn = $this->guid() ;
+        //去订单号查找是否有相同的订单号
+        $while = $order->checkOrder($order,$orderSn);
+        if($while)
+            $this->creatSn($order);
+
+        return $orderSn;
     }
 
+    //进行微信支付接口
     /**
-     * @param $payparam
-     * @param $param
-     * @param string $tablename
-     * @return array|bool
+     * @param $payparam 支付参数
+     * @param string $table 表名称
+     * @param array $param 表格插入参数
+     * @param array $conn 数据库连接参数
+     * @return string
      * @throws \Exception
-     * @funct 调用微信支付接口进行支付
      */
-    public function wxpay($payparam,$param,$tablename)
+    public function wxpay($payparam,$table='',$param = [],$conn = [])
     {
-
-        $url = "https://api.mch.weixin.qq.com/pay/unifiedorder";
-        $payparam['orderSn'] = $this->creatSn();
-
-        $this->payparam = $payparam;
-
-        $xml = $this->makeOrderXml($payparam);
-        $response = $this->postXml($url, $xml);
-        $re_arr = $this->fromXml($response);
-
-        if($tablename)
+        $GLOBALS['payparam'] = $payparam;
+        $tableparam['table'] = $table;
+        $GLOBALS['table'] = $table;
+        $tableparam['condition'] = $param;
+        $tableparam['conn'] = $conn;
+        $order = new orderPay($tableparam);
+        $GLOBALS['order'] = $order;
+        if(!count($payparam))
         {
-            $this->tablename = $tablename;
-            $param['orderSn'] = $payparam['orderSn'];
-            $oid = $this->createOrder($tablename,$param);
+            return 'please ready your payparam.';
+        }
+        //生成order_sn
+        $order_sn = $this->creatSn($order);
+        $GLOBALS['payparam']['order_sn'] = $order_sn;
+        //验证为空或者参数不存在
+        if(!isset($payparam['appid']) || !isset($payparam['mchid']) || !isset($payparam['openid']) || !isset($payparam['key']))
+        {
+            return 'lost some params';
         }
 
+        $fee = $payparam['total_fee']??1;
+        $body = $payparam['body']??'this is wxpay';
+        $detail = $payparam['detail']??'';
+        $notify = $payparam['notify']??'this is notify_url';
+
+        $prearr = $this->unifiedOrder($payparam['appid'],$payparam['mchid'],$payparam['openid'],$order_sn,$fee,$body,$detail,$notify);
+        $payinfo = $this->xcxSign($prearr['prepay_id']);
+
+        //创建订单
+        if($order){
+            $create = $order->order($order_sn,$prearr['prepay_id']);//创建
+            if(count($create)>1)
+                $oid = $create['oid'];
+            else
+                echo $create;
+        }
+
+        echo json_encode(array('payinfo'=>$payinfo));
+    }
+
+
+    public static function unifiedOrder($app_id,$mch_id,$openid, $order_no, $last_price, $body='',$detail='', $notify='')
+    {
+        $url = "https://api.mch.weixin.qq.com/pay/unifiedorder";
+        $wx_order = new static();
+        $xml = $wx_order->makeOrderXml($app_id,$mch_id,$openid, $order_no, $last_price, $body,$detail, $notify);
+        $response = $wx_order->postXml($url, $xml);
+        $re_arr = $wx_order->fromXml($response);
         if ($re_arr['return_code'] == 'FAIL') {
             throw new \Exception($re_arr['return_msg']);
         }
@@ -112,131 +127,133 @@ class wxPay{
         return $re_arr;
     }
 
-
-    /**
-     * @funct pay notify
-     */
-    public function notify()
+    public static function xcxSign($prepay_id)
     {
-
-        $xml = file_get_contents('php://input');
-        $arr = $this->fromXml($xml);
-        $response = [];
-        try {
-            if ($arr['return_code'] != 'SUCCESS') {
-                throw new \Exception('通信失败');
-            }
-            $sign = $this->MakeSign($arr,$this->payparam['key']);
-            if ($sign != $arr['sign']) {
-                throw new \Exception('签名验证失败');
-            }
-            $transaction_id = $arr['transaction_id'];
-            $prepay_no = $arr['out_trade_no'];
-            if (!$transaction_id || !$prepay_no) {
-                throw new \Exception('参数缺失');
-            }
-            $this->checkOrder($prepay_no,$transaction_id);
-
-        } catch (\Exception $e) {
-            $response['return_code'] = 'FAIL';
-            $response['return_msg'] = $e->getMessage();
-            $response_xml = $this->ToXml($response);
-            echo $response_xml;
-            exit;
-        }
+        $xcx_order = new static();
+        $arr = [
+            'appId'     => $GLOBALS['payparam']['appid'],
+            'nonceStr'  => md5(time()),
+            'package'   => 'prepay_id=' . $prepay_id,
+            'signType'  => 'MD5',
+            'timeStamp' => time(),
+        ];
+        $arr['paySign'] = $xcx_order->MakeSign($arr);
+        return $arr;
     }
 
-    /**
-     * @param $prepay_no
-     * @param $transaction_id
-     * @throws \Exception
-     * @funct update the order state
-     */
-    public function checkOrder($prepay_no,$transaction_id)
+    public static function closeOrder($order_no)
     {
-        $pdo = $this->pdo;
-
-        if($this->tablename)
-        {
-            //根据唯一订单号寻找订单，更新订单信息和数据
-            $sql = 'SELECT * FROM '.$this->tablename.' WHERE orderSn = ? ';
-            $sth = $pdo->prepare($sql);
-            $sth->bindValue(1,$prepay_no);
-            $sth->execute();
-            $res = $sth->fetch(\PDO::FETCH_ASSOC);
-            if(isset($res['oid'])){
-                //update the order state
-                $paytime = date('Y-m-d H:i:s',time());
-                $sql = "UPDATE wxorder SET state = 2 and transaction_id = ? and paytime = '$paytime'";
-                $sth = $pdo->prepare($sql);
-                $sth->bindValue(1,$transaction_id);
-                $sth->execute();
-            }else{
-                throw new \Exception('订单不存在');
-            }
+        $url = 'https://api.mch.weixin.qq.com/pay/closeorder';
+        $wx_order = new static();
+        $arr = [
+            'appid'        => $GLOBALS['payparam']['appid'],
+            'mch_id'       => $GLOBALS['payparam']['mch_id'],
+            'out_trade_no' => $order_no,
+            'nonce_str'    => md5(time()),
+        ];
+        $arr['sign'] = $wx_order->MakeSign($arr);
+        $xml = $wx_order->ToXml($arr);
+        $response = $wx_order->postXml($url, $xml);
+        $re_arr = $wx_order->fromXml($response);
+        if ($re_arr['return_code'] == 'FAIL') {
+            throw new \Exception($re_arr['return_msg']);
         }
-
+        if (isset($re_arr['err_code'])) {
+            throw new \Exception($re_arr['err_code_des']);
+        }
+        if ($re_arr['return_code'] != 'SUCCESS' || $re_arr['result_code'] != 'SUCCESS') {
+            throw new \Exception('微信统一关单失败');
+        }
+        return true;
     }
 
 
-    /**
-     * @param $payparam
-     * @return string
-     * @throws \Exception
-     */
-    public function makeOrderXml($payparam)
+    public function makeOrderXml($app_id,$mch_id,$openid, $order_no, $last_price, $body,$detail, $notify)
     {
         $arr = [
-            'appid'            => $payparam['appid'],
-            'mch_id'           => $payparam['mch_id'],
+            'appid'            => $app_id,
+            'mch_id'           => $mch_id,
             'nonce_str'        => md5(time()),
-            'notify_url'       => '',
-            'body'             => (isset($payparam['body']))?$payparam['body']:'about pay body',
-            'detail'           => (isset($payparam['detail']))?$payparam['detail']:'about pay detail',
-            'out_trade_no'     => $payparam['orderSn'],
-            'total_fee'        => (isset($payparam['total_fee']))?$payparam['total_fee']:1,
+            'notify_url'       => ($notify)??'',
+            'body'             => ($body)??"  ",
+            'detail'           => ($detail)??'',
+            'out_trade_no'     => $order_no,
+            'total_fee'        => $last_price,
             'spbill_create_ip' => '127.0.0.1',
             'trade_type'       => 'JSAPI',
-            'openid'           => $payparam['openid']
+            'openid'           => $openid
         ];
-        $sign = $this->MakeSign($arr,$payparam['key']);
+        $sign = $this->MakeSign($arr);
         $arr['sign'] = $sign;
         $xml = $this->ToXml($arr);
         return $xml;
+    }
+
+
+    public function postXml($url, $xml)
+    {
+        $ch = curl_init();
+        //设置超时
+        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+        curl_setopt($ch, CURLOPT_URL, $url);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);//严格校验
+        //设置header
+        curl_setopt($ch, CURLOPT_HEADER, false);
+        //要求结果为字符串且输出到屏幕上
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        //post提交方式
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $xml);
+        //运行curl
+        $data = curl_exec($ch);
+        //返回结果
+        if ($data) {
+            curl_close($ch);
+            return $data;
+        } else {
+            $error = curl_errno($ch);
+            curl_close($ch);
+            throw  new \Exception('curl出错');
+        }
     }
 
     /**
      * 生成签名
      * @return $result 签名
      */
-    public function MakeSign($arr,$key)
+    public function MakeSign($arr)
     {
+        $wx_order = new static();
+        
         //签名步骤一：按字典序排序参数
         ksort($arr);
-        $string = $this->ToUrlParams($arr);
+        $string = $wx_order->ToUrlParams($arr);
         //签名步骤二：在string后加入KEY
-        $string = $string . "&key=" . $key;
-
+        $string = $string . "&key=" . $GLOBALS['payparam']['key'];
+    
         //签名步骤三：MD5加密
         $string = md5($string);
         //签名步骤四：所有字符转为大写
         $result = strtoupper($string);
+        
         return $result;
     }
 
-
     /**
-     * @return string
-     * $funct create a unique  ordersn
+     * 格式化参数格式化成url参数
      */
-    public function creatSn()
+    public function ToUrlParams($arr)
     {
-        $yCode = array('A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J');
-        $orderSn = $yCode[intval(date('Y')) - 2011] . strtoupper(dechex(date('m'))) ;
-        return $orderSn;
+        $buff = "";
+        foreach ($arr as $k => $v) {
+            if ($k != "sign" && $v != "" && !is_array($v)) {
+                $buff .= $k . "=" . $v . "&";
+            }
+        }
+        $buff = trim($buff, "&");
+        return $buff;
     }
-
-
 
     /**
      * 输出xml字符
@@ -274,5 +291,71 @@ class wxPay{
         libxml_disable_entity_loader(true);
         return json_decode(json_encode(simplexml_load_string($xml, 'SimpleXMLElement', LIBXML_NOCDATA)), true);
     }
+
+    /**
+     * 查询订单
+     * @param $transaction_id
+     * @return array|bool
+     * @author Lejianwen
+     */
+    public function queryOrder($transaction_id, $trade_sn = '')
+    {
+        $arr = [
+            'appid'          => $GLOBALS['payparam']['appid'],
+            'mch_id'         => $GLOBALS['payparam']['mchid'],
+            'nonce_str'      => md5(time()),
+            'sign_type'      => 'MD5'
+        ];
+        if ($trade_sn !== '') {
+            $arr = array_merge($arr, ['out_trade_no' => $trade_sn]);
+        } else {
+            $arr = array_merge($arr, ['transaction_id' => $transaction_id]);
+        }
+        $arr['sign'] = $this->MakeSign($arr);
+        $url = "https://api.mch.weixin.qq.com/pay/orderquery";
+        $xml = $this->ToXml($arr);
+        $response = $this->postXml($url, $xml);
+        $re_arr = $this->fromXml($response);
+        if ($re_arr['return_code'] == 'SUCCESS' && $re_arr['result_code'] == 'SUCCESS') {
+            return $re_arr;
+        }
+        return false;
+    }
+
+
+    /**
+     * 支付之后回调函数
+     */
+    public function notify(){
+        $xml = file_get_contents('php://input');
+        $order = new static();
+        $arr = $order->fromXml($xml);
+        $response = [];
+        $errmsg = '支付成功';
+        try {
+            if ($arr['return_code'] != 'SUCCESS') {
+                $errmsg = '通信失败';
+            }
+            $sign = $order->MakeSign($arr);
+            if ($sign != $arr['sign']) {
+                $errmsg = '签名验证失败';
+            }
+            $transaction_id = $arr['transaction_id'];
+            $prepay_no = $arr['out_trade_no'];
+            if (!$transaction_id || !$prepay_no) {
+                $errmsg = '参数缺失';
+            }
+
+            echo json_encode(['trade_sn'=>$prepay_no,'msg'=>$errmsg]);
+
+        } catch (\Exception $e) {
+            $response['return_code'] = 'FAIL';
+            $response['return_msg'] = $e->getMessage();
+            $response_xml = $order->ToXml($response);
+            echo $response_xml;
+            exit;
+        }
+    }
+
 
 }
